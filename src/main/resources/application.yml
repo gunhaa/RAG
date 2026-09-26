@@ -1,0 +1,75 @@
+spring:
+  application:
+    name: rag
+
+  config:
+    # 루트의 .env 를 프로퍼티로 읽어들인다. `[.properties]` 는 확장자가 없는 파일을
+    # properties 형식으로 파싱하라는 힌트다. optional: 이므로 파일이 없어도 기동한다.
+    #
+    # ./gradlew bootRun 은 build.gradle.kts 가 .env 를 환경변수로도 주입하지만,
+    # IDE 에서 RagApplication 을 직접 실행할 때는 이 import 가 키를 공급한다.
+    # 실제 환경변수(export)가 있으면 그쪽이 우선한다.
+    import: "optional:file:.env[.properties]"
+
+  # compose.yaml 의 pgvector 컨테이너를 앱 시작 시 자동 기동한다.
+  # service-connection 라벨 덕분에 spring.datasource.* 설정이 필요 없다.
+  docker:
+    compose:
+      enabled: true
+      lifecycle-management: start_and_stop
+      skip:
+        # 기본값이 true 여서 테스트에서는 컨테이너를 띄우지 않는다. 그러면 DataSource URL 이
+        # 없어 RagApplicationTests 가 "Failed to determine a suitable driver class" 로 깨진다.
+        # 이 테스트는 애초에 Docker 가 떠 있어야 도는 것이므로 false 로 둔다.
+        in-tests: false
+
+  ai:
+    google:
+      genai:
+        # API Key 모드. project-id / location 을 절대 설정하지 말 것.
+        # 하나라도 설정하면 Vertex AI 모드로 전환되어 이 키가 400 으로 거부된다.
+        api-key: ${GEMINI_API_KEY}
+        chat:
+          options:
+            # gemini-2.5-flash 는 2026-09 에 신규 사용자 차단되어 404 를 던진다.
+            #   "This model models/gemini-2.5-flash is no longer available to new users."
+            # ListModels 응답에는 여전히 나오므로 목록만 보고 판단하면 안 된다.
+            #
+            # 무료 등급 일일 한도는 모델별로 따로 계산된다. 한도를 소진하면 429 가 나므로
+            # 다른 flash 모델로 바꿔 실험을 이어갈 수 있다.
+            model: gemini-3.5-flash
+            temperature: 0.1        # 규정 안내는 창의성이 필요 없다
+
+        # 채팅과 임베딩은 스타터가 분리되어 있어 API 키도 따로 지정해야 한다.
+        embedding:
+          api-key: ${GEMINI_API_KEY}
+          text:
+            options:
+              # Spring AI 2.0.1 의 기본값인 text-embedding-004 는
+              # 2026-01-14 에 Google 이 서비스를 종료했으므로 반드시 교체해야 한다.
+              model: gemini-embedding-001
+              # 이 모델의 기본 차원은 3072 이지만 pgvector HNSW 인덱스 상한이 2000 이다.
+              # MRL 로 학습된 모델이라 앞쪽 차원만 잘라 써도 성능이 유지된다.
+              dimensions: 1536
+              task-type: RETRIEVAL_DOCUMENT
+
+    vectorstore:
+      pgvector:
+        initialize-schema: true
+        dimensions: 1536            # 위 embedding dimensions 와 반드시 일치
+        index-type: HNSW
+        distance-type: COSINE_DISTANCE
+
+# 이 프로젝트 고유 설정
+rag:
+  docs-location: "file:./docs/*.md"
+  top-k: 4
+  similarity-threshold: 0.5
+  # false 로 두면 LLM 에게 검색 도구를 주지 않는다 (negative control 실험용).
+  tools-enabled: true
+  # false 로 두면 시작 시 색인을 건너뛴다 (이미 색인된 DB 재사용).
+  index-on-startup: true
+
+logging:
+  level:
+    com.gunha.rag: DEBUG

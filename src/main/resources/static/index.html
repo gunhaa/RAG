@@ -1,0 +1,459 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>gunha company RAG 디버그 콘솔</title>
+<style>
+  :root {
+    --bg: #f7f7f8;
+    --panel: #ffffff;
+    --border: #e3e3e8;
+    --text: #1d1d20;
+    --muted: #6b6b75;
+    --user-bg: #2b6cb0;
+    --user-text: #ffffff;
+    --accent: #2b6cb0;
+    --code-bg: #f3f3f5;
+    --warn-bg: #fff6e5;
+    --warn-border: #f0d9a8;
+    --err: #c0392b;
+    --p-prompt: #7c5ce0;
+    --p-http: #2b8a6f;
+    --p-tool: #c77c1f;
+    --p-vector: #2b6cb0;
+    --p-model: #7c5ce0;
+    --p-log: #8a8a95;
+    --p-error: #c0392b;
+    --p-app: #4a4a55;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --bg: #17171a;
+      --panel: #1f1f23;
+      --border: #32323a;
+      --text: #ececf0;
+      --muted: #9a9aa5;
+      --user-bg: #3b82c4;
+      --accent: #6fb0ea;
+      --code-bg: #15151a;
+      --warn-bg: #2e2717;
+      --warn-border: #4d411f;
+      --err: #ef6f61;
+      --p-prompt: #a78bfa;
+      --p-http: #4dbd9a;
+      --p-tool: #e0a34a;
+      --p-vector: #6fb0ea;
+      --p-model: #a78bfa;
+      --p-log: #7c7c88;
+      --p-error: #ef6f61;
+      --p-app: #b8b8c4;
+    }
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    background: var(--bg);
+    color: var(--text);
+    font: 15px/1.6 -apple-system, BlinkMacSystemFont, "Apple SD Gothic Neo", "Segoe UI", sans-serif;
+    display: flex;
+    justify-content: center;
+  }
+  .app {
+    width: 100%;
+    max-width: 1080px;
+    min-height: 100vh;
+    padding: 0 16px 24px;
+    display: flex;
+    flex-direction: column;
+  }
+  header { padding: 20px 0 12px; border-bottom: 1px solid var(--border); }
+  h1 { margin: 0; font-size: 19px; letter-spacing: -0.2px; }
+  header p { margin: 6px 0 0; color: var(--muted); font-size: 13px; }
+
+  #log { flex: 1; padding: 16px 0; display: flex; flex-direction: column; gap: 22px; }
+  .turn { display: flex; flex-direction: column; gap: 10px; }
+  .bubble-user {
+    align-self: flex-end;
+    max-width: 82%;
+    background: var(--user-bg);
+    color: var(--user-text);
+    padding: 10px 14px;
+    border-radius: 16px 16px 4px 16px;
+    white-space: pre-wrap;
+  }
+  .bubble-bot {
+    align-self: flex-start;
+    max-width: 92%;
+    background: var(--panel);
+    border: 1px solid var(--border);
+    padding: 12px 15px;
+    border-radius: 16px 16px 16px 4px;
+    white-space: pre-wrap;
+  }
+  .bubble-bot.error { border-color: var(--err); color: var(--err); }
+
+  /* 근거 요약 — 타임라인을 펼치지 않아도 보이는 한 줄 */
+  .hits { margin: 0; padding: 0; list-style: none; font-size: 13px;
+          display: flex; flex-direction: column; gap: 4px; }
+  .hit { display: flex; gap: 9px; align-items: baseline; }
+  .score { font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+           font-variant-numeric: tabular-nums; color: var(--accent); flex: 0 0 auto; }
+  .where { color: var(--muted); overflow-wrap: anywhere; }
+  .where b { color: var(--text); font-weight: 600; }
+  .note {
+    background: var(--warn-bg); border: 1px solid var(--warn-border);
+    border-radius: 9px; padding: 9px 12px; font-size: 13px;
+  }
+
+  /* 디버그 타임라인 */
+  .console { border: 1px solid var(--border); border-radius: 11px; background: var(--panel); overflow: hidden; }
+  .console > summary {
+    padding: 9px 13px; cursor: pointer; font-size: 13px; font-weight: 600;
+    display: flex; gap: 10px; align-items: center; flex-wrap: wrap;
+  }
+  .console > summary::marker { color: var(--muted); }
+  .summary-meta { color: var(--muted); font-weight: 400; font-family: ui-monospace, Menlo, monospace; }
+  .filters { display: flex; flex-wrap: wrap; gap: 5px; padding: 0 13px 10px; }
+  .filters label {
+    font-size: 11.5px; font-family: ui-monospace, Menlo, monospace;
+    border: 1px solid var(--border); border-radius: 999px; padding: 2px 9px;
+    cursor: pointer; user-select: none; color: var(--muted);
+  }
+  .filters input { display: none; }
+  .filters label.on { color: var(--text); border-color: currentColor; }
+
+  .events { border-top: 1px solid var(--border); }
+  .ev { border-bottom: 1px solid var(--border); }
+  .ev:last-child { border-bottom: 0; }
+  .ev > summary {
+    display: grid;
+    grid-template-columns: 62px 104px 1fr auto;
+    gap: 10px;
+    align-items: baseline;
+    padding: 7px 13px;
+    cursor: pointer;
+    font-size: 12.5px;
+    list-style: none;
+  }
+  .ev > summary::-webkit-details-marker { display: none; }
+  .ev > summary:hover { background: var(--code-bg); }
+  .at { font-family: ui-monospace, Menlo, monospace; color: var(--muted);
+        font-variant-numeric: tabular-nums; text-align: right; }
+  .phase { font-family: ui-monospace, Menlo, monospace; font-size: 10.5px;
+           font-weight: 700; letter-spacing: .3px; }
+  .label { overflow-wrap: anywhere; }
+  .dur { font-family: ui-monospace, Menlo, monospace; color: var(--muted); font-size: 11.5px; }
+  .PROMPT .phase { color: var(--p-prompt); }
+  .GEMINI_HTTP .phase { color: var(--p-http); }
+  .TOOL .phase { color: var(--p-tool); }
+  .VECTOR_SEARCH .phase { color: var(--p-vector); }
+  .MODEL_RESPONSE .phase { color: var(--p-model); }
+  .LOG .phase { color: var(--p-log); }
+  .APP_HTTP .phase { color: var(--p-app); }
+  .ERROR .phase { color: var(--p-error); }
+  .ERROR .label { color: var(--p-error); }
+
+  .detail { padding: 0 13px 12px; }
+  .detail-bar { display: flex; gap: 6px; padding: 2px 0 7px; }
+  .detail-bar button {
+    font-size: 11px; padding: 3px 9px; border-radius: 7px;
+    border: 1px solid var(--border); background: transparent; color: var(--muted);
+    font-weight: 400; cursor: pointer;
+  }
+  pre {
+    margin: 0; padding: 11px 12px;
+    background: var(--code-bg);
+    border-radius: 8px;
+    font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+    font-size: 11.5px; line-height: 1.55;
+    white-space: pre-wrap; overflow-wrap: anywhere;
+    max-height: 460px; overflow: auto;
+  }
+
+  form { display: flex; gap: 8px; padding-top: 14px; border-top: 1px solid var(--border); }
+  input[type=text] {
+    flex: 1; min-width: 0; padding: 11px 14px;
+    border: 1px solid var(--border); border-radius: 10px;
+    background: var(--panel); color: var(--text); font: inherit;
+  }
+  input[type=text]:focus { outline: 2px solid var(--accent); outline-offset: -1px; }
+  button[type=submit] {
+    padding: 11px 18px; border: 0; border-radius: 10px;
+    background: var(--accent); color: #fff; font: inherit; font-weight: 600; cursor: pointer;
+  }
+  button:disabled { opacity: .5; cursor: default; }
+  .samples { display: flex; flex-wrap: wrap; gap: 6px; padding-top: 10px; }
+  .samples button {
+    background: transparent; border: 1px solid var(--border); color: var(--muted);
+    font-weight: 400; font-size: 12.5px; padding: 5px 10px; border-radius: 999px; cursor: pointer;
+  }
+  @media (max-width: 640px) {
+    .ev > summary { grid-template-columns: 52px 1fr; }
+    .ev > summary .dur { grid-column: 2; }
+  }
+</style>
+</head>
+<body>
+<div class="app">
+  <header>
+    <h1>gunha company RAG 디버그 콘솔</h1>
+    <p>질문 하나가 처리되는 전 과정을 시간순으로 보여줍니다 — 프롬프트, LLM 이 만든 검색어,
+       pgvector 검색 결과, <b>Gemini 와 주고받은 HTTP 전문</b>, 애플리케이션 로그.
+       각 줄을 눌러 펼치면 전문이 나옵니다.</p>
+  </header>
+
+  <div id="log"></div>
+
+  <form id="form">
+    <input type="text" id="q" autocomplete="off" placeholder="예: 수요일에 몇 시에 퇴근해요?" required>
+    <button type="submit" id="send">전송</button>
+  </form>
+
+  <div class="samples" id="samples"></div>
+</div>
+
+<script>
+  const SAMPLES = [
+    '수요일에 몇 시에 퇴근해요?',
+    '회의는 최대 몇 분까지 가능해요?',
+    '점심 법인카드 쓰는 조건이 뭐예요?',
+    '키보드 지원 한도가 얼마예요?',
+    '생일에 휴가 며칠 써요?',
+    '버그 찾으면 뭐 받아요?',
+    '주차비 지원되나요?',
+    '오늘 서울 날씨 어때?'
+  ];
+
+  /**
+   * [계층, 기본 표시 여부, CSS 색상 변수]. LOG 는 양이 많아 꺼 둔다.
+   * 색상 변수명을 계층명에서 문자열로 만들지 않고 못박아 둔다 — GEMINI_HTTP 처럼
+   * 이름과 변수명이 다른 경우가 있어서 규칙으로 유도하면 조용히 색이 빠진다.
+   */
+  const PHASES = [
+    ['APP_HTTP',      true,  '--p-app'   ],
+    ['PROMPT',        true,  '--p-prompt'],
+    ['TOOL',          true,  '--p-tool'  ],
+    ['VECTOR_SEARCH', true,  '--p-vector'],
+    ['GEMINI_HTTP',   true,  '--p-http'  ],
+    ['MODEL_RESPONSE',true,  '--p-model' ],
+    ['ERROR',         true,  '--p-error' ],
+    ['LOG',           false, '--p-log'   ]
+  ];
+
+  const log = document.getElementById('log');
+  const form = document.getElementById('form');
+  const input = document.getElementById('q');
+  const send = document.getElementById('send');
+
+  const samples = document.getElementById('samples');
+  SAMPLES.forEach(s => {
+    const b = document.createElement('button');
+    b.type = 'button';
+    b.textContent = s;
+    b.onclick = () => { input.value = s; form.requestSubmit(); };
+    samples.appendChild(b);
+  });
+
+  function el(tag, cls, text) {
+    const e = document.createElement(tag);
+    if (cls) e.className = cls;
+    if (text !== undefined) e.textContent = text;
+    return e;
+  }
+
+  /** JSON 이면 들여쓰기해서 돌려준다. HTTP 전문은 헤더 뒤에 본문이 붙어 있어 본문만 골라 정렬한다. */
+  function prettify(raw) {
+    const out = [];
+    for (const block of raw.split(/\n(?=\{)/)) {
+      const t = block.trim();
+      if (t.startsWith('{') || t.startsWith('[')) {
+        try { out.push(JSON.stringify(JSON.parse(t), null, 2)); continue; } catch (_) { /* JSON 아님 */ }
+      }
+      out.push(block);
+    }
+    return out.join('\n');
+  }
+
+  function renderEvent(ev) {
+    const d = el('details', 'ev ' + ev.phase);
+    const s = el('summary');
+    s.appendChild(el('span', 'at', '+' + ev.atMs + 'ms'));
+    s.appendChild(el('span', 'phase', ev.phase));
+    s.appendChild(el('span', 'label', ev.label));
+    s.appendChild(el('span', 'dur', ev.durationMs > 0 ? ev.durationMs + 'ms' : ''));
+    d.appendChild(s);
+
+    const wrap = el('div', 'detail');
+    const bar = el('div', 'detail-bar');
+    const pre = el('pre', null, ev.detail || '(내용 없음)');
+
+    const fmt = el('button', null, 'JSON 정렬');
+    let pretty = false;
+    fmt.type = 'button';
+    fmt.onclick = () => {
+      pretty = !pretty;
+      pre.textContent = pretty ? prettify(ev.detail || '') : (ev.detail || '');
+      fmt.textContent = pretty ? '원문' : 'JSON 정렬';
+    };
+    const copy = el('button', null, '복사');
+    copy.type = 'button';
+    copy.onclick = () => navigator.clipboard.writeText(ev.detail || '');
+
+    bar.append(fmt, copy);
+    wrap.append(bar, pre);
+    d.appendChild(wrap);
+    return d;
+  }
+
+  /** 디버그 타임라인 전체. 계층 필터는 CSS display 로 처리한다. */
+  function renderConsole(events) {
+    const box = el('details', 'console');
+    box.open = true;
+
+    const httpCount = events.filter(e => e.phase === 'GEMINI_HTTP').length;
+    const totalMs = events.length ? events[events.length - 1].atMs : 0;
+    const sum = el('summary');
+    sum.appendChild(el('span', null, '디버그 타임라인'));
+    sum.appendChild(el('span', 'summary-meta',
+      `${events.length} events · Gemini HTTP ${httpCount}회 · ${totalMs}ms`));
+    box.appendChild(sum);
+
+    const list = el('div', 'events');
+    const rows = events.map(ev => {
+      const row = renderEvent(ev);
+      list.appendChild(row);
+      return row;
+    });
+
+    const filters = el('div', 'filters');
+    PHASES.forEach(([phase, on, colorVar]) => {
+      const count = events.filter(e => e.phase === phase).length;
+      if (count === 0) return;
+      const lab = el('label', on ? 'on' : '');
+      const cb = el('input');
+      cb.type = 'checkbox';
+      cb.checked = on;
+      const apply = () => {
+        lab.className = cb.checked ? 'on' : '';
+        rows.forEach((row, i) => {
+          if (events[i].phase === phase) row.style.display = cb.checked ? '' : 'none';
+        });
+      };
+      cb.onchange = apply;
+      lab.append(cb, document.createTextNode(`${phase} ${count}`));
+      lab.style.color = `var(${colorVar})`;
+      filters.appendChild(lab);
+      apply();
+    });
+
+    box.append(filters, list);
+    return box;
+  }
+
+  /** 브라우저 ↔ 앱 사이의 HTTP 는 서버가 아니라 여기서 그린다 (응답 본문이 곧 트레이스라서). */
+  function browserExchange(reqBody, res, resText, ms) {
+    const req = [
+      'POST /api/chat HTTP/1.1',
+      'Host: ' + location.host,
+      'Content-Type: application/json',
+      'Accept: */*',
+      '',
+      reqBody
+    ].join('\n');
+
+    let head = `HTTP ${res.status} ${res.statusText}`;
+    res.headers.forEach((v, k) => { head += `\n${k}: ${v}`; });
+
+    return {
+      atMs: 0,
+      durationMs: ms,
+      phase: 'APP_HTTP',
+      label: `브라우저 → 앱: POST /api/chat → ${res.status}`,
+      detail: req + `\n\n--- ${ms}ms ---\n\n` + head + '\n\n' + resText
+    };
+  }
+
+  function renderHits(turn, data) {
+    if (!data.toolsEnabled) {
+      turn.appendChild(el('div', 'note', '⚠ 검색 도구 비활성 (rag.tools-enabled=false) — 사전 지식만으로 답한 결과'));
+      return;
+    }
+    if (!data.invocations || data.invocations.length === 0) {
+      turn.appendChild(el('div', 'note', '검색 없이 답변 — LLM 이 사내 규정 질문이 아니라고 판단했습니다'));
+      return;
+    }
+    data.invocations.forEach(inv => {
+      const ul = el('ul', 'hits');
+      if (inv.chunks.length === 0) {
+        ul.appendChild(el('li', 'where', `searchCompanyRules("${inv.query}") → 결과 없음`));
+      }
+      inv.chunks.forEach(c => {
+        const li = el('li', 'hit');
+        li.appendChild(el('span', 'score', c.score.toFixed(3)));
+        const w = el('span', 'where');
+        w.append(el('b', null, c.title), document.createTextNode(' · ' + c.source));
+        li.appendChild(w);
+        ul.appendChild(li);
+      });
+      turn.appendChild(ul);
+    });
+  }
+
+  form.onsubmit = async (e) => {
+    e.preventDefault();
+    const question = input.value.trim();
+    if (!question) return;
+
+    input.value = '';
+    send.disabled = true;
+
+    const turn = el('div', 'turn');
+    turn.appendChild(el('div', 'bubble-user', question));
+    const pending = el('div', 'bubble-bot', '생각 중…');
+    turn.appendChild(pending);
+    log.appendChild(turn);
+    window.scrollTo(0, document.body.scrollHeight);
+
+    const reqBody = JSON.stringify({ question });
+    const t0 = performance.now();
+
+    try {
+      const res = await fetch('/api/chat', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: reqBody
+      });
+      const resText = await res.text();
+      const ms = Math.round(performance.now() - t0);
+
+      let data;
+      try { data = JSON.parse(resText); }
+      catch (_) { throw new Error('JSON 이 아닌 응답: ' + resText.slice(0, 200)); }
+
+      pending.remove();
+
+      if (res.ok) {
+        renderHits(turn, data);
+        turn.appendChild(el('div', 'bubble-bot', data.answer));
+      } else {
+        // 실패해도 트레이스는 내려온다. 원인은 대개 GEMINI_HTTP 응답 본문에 있다.
+        turn.appendChild(el('div', 'bubble-bot error', '오류: ' + (data.message || resText)));
+      }
+
+      const events = [browserExchange(reqBody, res, resText, ms), ...(data.trace || [])];
+      turn.appendChild(renderConsole(events));
+    } catch (err) {
+      pending.textContent = '오류: ' + err.message;
+      pending.className = 'bubble-bot error';
+    } finally {
+      send.disabled = false;
+      input.focus();
+      window.scrollTo(0, document.body.scrollHeight);
+    }
+  };
+
+  input.focus();
+</script>
+</body>
+</html>

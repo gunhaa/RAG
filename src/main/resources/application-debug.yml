@@ -1,0 +1,32 @@
+# `debug` 프로파일에서만 켜지는 관찰용 로그 설정.
+#
+#   ./gradlew bootRun --args="--spring.profiles.active=debug"
+#
+# 기본 실행 로그를 더럽히지 않기 위해 분리했다. 여기 있는 로거 이름은 전부 실제 의존성의
+# 패키지 경로이며, 클래스명 대신 패키지를 쓴 것은 logging.level 맵 바인딩이 카멜케이스
+# 키를 변형할 수 있어서다 (클래스명을 쓰려면 "[com.example.MyClass]" 처럼 인용해야 한다).
+logging:
+  level:
+    # ChatClient 로 오가는 프롬프트·응답 원문.
+    # ChatDebugConfig 가 등록하는 SimpleLoggerAdvisor 가 이 패키지에서 찍는다.
+    # 이 설정만 켜고 프로파일을 비활성화하면 advisor 가 없어 아무것도 나오지 않는다.
+    org.springframework.ai.chat.client.advisor: DEBUG
+
+    # LLM 이 요청한 도구 호출을 실제 @Tool 메서드로 연결하고 결과를 되돌려보내는 단계.
+    # 도구 호출이 아예 시도되지 않은 것인지, 시도됐는데 실패한 것인지를 여기서 가른다.
+    org.springframework.ai.model.tool: DEBUG
+
+    # 유사도 검색 요청과 pgvector 스키마 초기화
+    org.springframework.ai.vectorstore.pgvector: DEBUG
+
+    # pgvector 로 실제 나가는 SQL. 바인딩 파라미터(1536차원 임베딩 벡터)까지 보려면
+    # TRACE 로 올리면 되지만 한 줄이 수만 자가 되므로 권장하지 않는다.
+    org.springframework.jdbc.core.JdbcTemplate: DEBUG
+
+    # compose.yaml 컨테이너 기동과 헬스체크 대기 과정.
+    # "앱이 시작에서 멈춘 것처럼 보이는" 문제는 대부분 여기서 원인이 드러난다.
+    org.springframework.boot.docker.compose: DEBUG
+
+# 자동 설정 리포트(어떤 AutoConfiguration 이 왜 적용/제외됐는지)까지 보려면 주석을 푼다.
+# 수백 줄이 나오므로 빈 등록 문제를 쫓을 때만 켠다.
+#debug: true
