@@ -1,0 +1,20 @@
+services:
+  pgvector:
+    image: 'pgvector/pgvector:pg17'
+    environment:
+      - 'POSTGRES_DB=rag'
+      - 'POSTGRES_USER=rag'
+      - 'POSTGRES_PASSWORD=rag'
+    labels:
+      # 이 라벨이 있으면 spring-boot-docker-compose 가 접속 정보를 자동 주입한다.
+      # (application.yml 에 spring.datasource.* 를 쓸 필요가 없다)
+      - "org.springframework.boot.service-connection=postgres"
+    ports:
+      # psql 로 직접 들여다보기 위해 호스트 포트를 고정한다.
+      - '5432:5432'
+    volumes:
+      # 볼륨이 없으면 docker compose down 한 순간 색인이 날아가 재색인(임베딩 API 호출)이 필요하다.
+      - 'pgvector-data:/var/lib/postgresql/data'
+
+volumes:
+  pgvector-data:
